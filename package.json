@@ -1,0 +1,15 @@
+{
+  "name": "nakama-duel",
+  "private": true,
+  "scripts": {
+    "install:web": "npm --prefix apps/web ci",
+    "dev": "npm --prefix apps/web run dev",
+    "build": "npm --prefix apps/web run build",
+    "start": "npm --prefix apps/web run start",
+    "lint": "npm --prefix apps/web run lint",
+    "test:integration:smoke": "npm --prefix apps/web run test:integration:smoke",
+    "test:finance-duel": "npm --prefix apps/web run test:finance-duel",
+    "price-feed:btc": "npm --prefix apps/web run price-feed:btc",
+    "price-feed:worker": "npm --prefix apps/web run price-feed:worker"
+  }
+}

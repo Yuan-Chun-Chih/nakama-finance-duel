@@ -1,0 +1,10 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+COPY scripts/price-feed-worker.mjs ./scripts/price-feed-worker.mjs
+
+CMD ["node", "scripts/price-feed-worker.mjs"]

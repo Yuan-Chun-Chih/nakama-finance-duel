@@ -1,0 +1,8 @@
+# 不把本機 node_modules 放進 Docker build context，避免 build 變慢且污染容器環境。
+node_modules
+
+# build 是舊 TypeScript runtime 的輸出目錄；目前 Go runtime build 不需要把它送進 Docker context。
+build
+
+# npm debug log 不屬於 runtime build 輸入。
+npm-debug.log*

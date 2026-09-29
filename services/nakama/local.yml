@@ -1,0 +1,104 @@
+# Nakama 本機設定檔
+#
+# 目前 local.yml 的定位：
+# - 仍然負責 Nakama server 本身的執行設定，例如 console、socket、session、runtime path。
+# - 不再負責 guild / leaderboard / score / search 等業務規則，這些已移交到 nakama/runtime.go。
+# - 不再負責 Docker 服務編排與 database address，這些已移交到 nakama/docker-compose.yml。
+# - 不再負責前端使用的 RPC id / leaderboard id / host / port，這些已移交到 .env.local 與 lib/nakama/client.ts。
+# - 不再使用 JavaScript runtime entrypoint；目前 authoritative runtime 是 Go plugin backend.so。
+
+# 仍有效：Nakama node name。
+# 注意：Nakama 要求 name 長度必須是 1-16 字元，之前 7351 無法開啟曾經是這裡超長造成。
+name: "nakama-fin-dev"
+
+# 仍有效：Nakama data directory。
+# Dockerfile 會把 Go plugin backend.so 放進 /nakama/data/modules。
+data_dir: "/nakama/data"
+
+logger:
+  # 仍有效：Nakama log 等級。
+  # DEBUG 適合本機開發，可看到 RPC、socket、leaderboard 等細節。
+  # 若正式部署，通常應改成 INFO 或 WARN。
+  level: "DEBUG"
+
+console:
+  # 仍有效：Nakama Console HTTP gateway port。
+  # 本機網址：http://127.0.0.1:7351
+  port: 7351
+
+  # 仍有效：Nakama Console 登入帳密。
+  # 只適合本機開發，正式環境不會使用預設帳密。
+  username: "admin"
+  password: "admin123"
+
+  # 仍有效：Console session signing key。
+  # 只影響 Nakama Console 登入 session，不是前端 API 的 server key。
+  signing_key: "nakama-finance-console-signing-key"
+  max_message_size_bytes: 4194304
+
+runtime:
+  # 仍有效：Nakama runtime HTTP key。
+  # 這是 server-to-server runtime HTTP 用的 key，目前前端不直接使用。
+  http_key: "nakama-finance-dev-http-key"
+
+  # 仍有效：Nakama runtime module 載入路徑。
+  # Dockerfile 會把 Go plugin 編譯成 backend.so，並複製到這個目錄。
+  # 已移交的部分：runtime 業務邏輯本身已移到 nakama/runtime.go。
+  # 已棄用的部分：舊的 JavaScript runtime js_entrypoint 不再使用，請不要在這裡加回 js_entrypoint。
+  path: "/nakama/data/modules"
+
+session:
+  # 仍有效：Nakama access token / refresh token 加密 key。
+  # 注意：前端只保存 token；token 的簽發與驗證仍由 Nakama 根據這裡的 key 處理。
+  encryption_key: "nakama-finance-session-encryption-key"
+  refresh_encryption_key: "nakama-finance-refresh-encryption-key"
+
+  # 仍有效：token 有效期限。
+  # access token 目前 2 小時，refresh token 目前 1 天。
+  token_expiry_sec: 7200
+  refresh_token_expiry_sec: 86400
+
+  # 仍有效：是否限制單一 socket / 單一 session。
+  # false 代表同一帳號可同時有多個瀏覽器分頁、socket 或 session。
+  single_socket: false
+  single_session: false
+
+socket:
+  # 仍有效：Nakama HTTP API / realtime socket 的 server key。
+  # 必須與 .env.local 的 NEXT_PUBLIC_NAKAMA_SERVER_KEY 保持一致。
+  # 前端讀取位置：.env.local -> lib/nakama/client.ts -> getNakamaClient()
+  server_key: "nakama-finance-dev-key"
+
+  # 仍有效：Nakama HTTP API 與 realtime socket port。
+  # 必須與 .env.local 的 NEXT_PUBLIC_NAKAMA_PORT 保持一致。
+  port: 7350
+  max_message_size_bytes: 4096
+  max_request_size_bytes: 131072
+
+tracker:
+  # 仍有效：realtime tracker event queue size。
+  # 與 presence / online status / socket tracker 相關。
+  event_queue_size: 1024
+
+# 已移交到其他檔案的責任總結：
+#
+# 1. guild / leaderboard / score / search RPC 業務規則：
+#    - 現在由 nakama/runtime.go 負責。
+#
+# 2. Go plugin 編譯與打包：
+#    - 現在由 nakama/Dockerfile 負責。
+#
+# 3. PostgreSQL service、migration、database.address、port mapping：
+#    - 現在由 nakama/docker-compose.yml 負責。
+#
+# 4. 前端 Nakama host / port / server key / RPC id / leaderboard id：
+#    - 現在由 .env.local 與 lib/nakama/client.ts 負責。
+#
+# 5. 前端 session 保存、dashboard 資料組裝、chat socket 狀態：
+#    - session/client 設定：lib/nakama/client.ts
+#    - dashboard / guild / leaderboard 資料流：lib/nakama/dashboard.ts
+#    - realtime chat：lib/nakama/chat.ts
+#
+# 6. 舊 TypeScript / JavaScript runtime：
+#    - nakama/src/main.ts、nakama/build/main.js、nakama/tsconfig.json 屬於舊 runtime 路線或歷史參考。
+#    - 目前 Nakama authoritative backend 以 nakama/runtime.go 為準。

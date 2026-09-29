@@ -1,0 +1,96 @@
+services:
+  # PostgreSQL 是 Nakama 的正式資料庫。
+  # 本地環境會保存 users、groups、storage、leaderboard_record 等資料。
+  postgres:
+    image: postgres:16-alpine
+    # pg_stat_statements 方便後續查詢 SQL 效能；目前主要是本地 debug 用。
+    command: postgres -c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=all
+    environment:
+      POSTGRES_DB: nakama
+      POSTGRES_PASSWORD: localdb
+      POSTGRES_USER: postgres
+    healthcheck:
+      # Nakama 服務會等 PostgreSQL healthy 後才啟動，避免 migrate 時 DB 還沒準備好。
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nakama"]
+      interval: 5s 
+      timeout: 5s
+      retries: 10
+    ports:
+      # 對外開 5432，方便用 psql 或 DB 工具直接檢查 storage / leaderboard_record。
+      - "5432:5432"
+    volumes:
+      # 使用 named volume 保留本地資料；如果要清空 DB，需要 docker compose down -v。
+      - postgres_data:/var/lib/postgresql/data
+
+  # Nakama server 會從本目錄 Dockerfile build，包含 Go runtime plugin backend.so。
+  nakama:
+    build:
+      context: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint:
+      # 先跑 DB migration，再用 local.yml 啟動 Nakama。
+      # database.address 使用 compose service name `postgres`，不是 localhost。
+      - "/bin/sh"
+      - "-ecx"
+      - >
+        /nakama/nakama migrate up --database.address postgres:localdb@postgres:5432/nakama &&
+        exec /nakama/nakama --config /nakama/data/local.yml --database.address postgres:localdb@postgres:5432/nakama
+    healthcheck:
+      # healthcheck 通過後，前端才應該能穩定呼叫 7350 API / 7351 console。
+      test: ["CMD", "/nakama/nakama", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      # 7349: gRPC API；7350: HTTP API / socket；7351: Console。
+      - "7349:7349"
+      - "7350:7350"
+      - "7351:7351"
+    environment:
+      MATCH_PRICE_INGEST_SECRET: "${MATCH_PRICE_INGEST_SECRET:?MATCH_PRICE_INGEST_SECRET must be set in services/nakama/.env}"
+      # 預設禁止 bootstrap 假行情；僅隔離測試環境可明確設為 true。
+      MATCH_PRICE_ALLOW_BOOTSTRAP: "${MATCH_PRICE_ALLOW_BOOTSTRAP:-false}"
+      MATCH_PRICE_ALLOWED_SYMBOLS: "${MATCH_PRICE_ALLOWED_SYMBOLS:-BTC/USDT}"
+      MATCH_PRICE_ALLOWED_SOURCE_PREFIXES: "${MATCH_PRICE_ALLOWED_SOURCE_PREFIXES:-binance:}"
+      MATCH_PRICE_MAX_LATEST_AGE_SECONDS: "${MATCH_PRICE_MAX_LATEST_AGE_SECONDS:-300}"
+      MATCH_PRICE_MAX_FUTURE_SKEW_SECONDS: "${MATCH_PRICE_MAX_FUTURE_SKEW_SECONDS:-120}"
+      MATCH_PRICE_MAX_MOVE_BPS: "${MATCH_PRICE_MAX_MOVE_BPS:-2500}"
+      MATCH_PRICE_REQUIRE_SIGNATURE: "${MATCH_PRICE_REQUIRE_SIGNATURE:-true}"
+      MATCH_PRICE_SIGNATURE_MAX_SKEW_SECONDS: "${MATCH_PRICE_SIGNATURE_MAX_SKEW_SECONDS:-60}"
+      # 逗號分隔 Nakama user UUID；未設定時 get_finance_metrics 將拒絕所有玩家請求。
+      FINANCE_METRICS_ADMIN_USER_IDS: "${FINANCE_METRICS_ADMIN_USER_IDS:-}"
+      ALLOW_CLIENT_PORTFOLIO_SCORE_SUBMISSION: "${ALLOW_CLIENT_PORTFOLIO_SCORE_SUBMISSION:-false}"
+      ALLOW_DIRECT_FINANCE_MATCH_CREATION: "${ALLOW_DIRECT_FINANCE_MATCH_CREATION:-false}"
+    restart: unless-stopped
+
+  price-feed:
+    build:
+      context: ../../apps/web
+      dockerfile: Dockerfile.price-feed
+    depends_on:
+      nakama:
+        condition: service_healthy
+    environment:
+      NEXT_PUBLIC_NAKAMA_HOST: nakama
+      NEXT_PUBLIC_NAKAMA_PORT: "7350"
+      NEXT_PUBLIC_NAKAMA_SERVER_KEY: nakama-finance-dev-key
+      NEXT_PUBLIC_NAKAMA_USE_SSL: "false"
+      NAKAMA_INGEST_MATCH_CANDLES_RPC_ID: ingest_match_candles
+      MATCH_PRICE_INGEST_SECRET: "${MATCH_PRICE_INGEST_SECRET:?MATCH_PRICE_INGEST_SECRET must be set in services/nakama/.env}"
+      MATCH_PRICE_EXCHANGE: binance
+      MATCH_PRICE_SYMBOL: BTC/USDT
+      MATCH_PRICE_TIMEFRAME: 1m
+      MATCH_PRICE_LIMIT: "120"
+      # 與 finance duel 的 10 秒回合一致，讓每回合都有機會取得更新中的 BTC candle close。
+      MATCH_PRICE_POLL_INTERVAL_MS: "10000"
+      # 連續失敗採指數退避；達門檻後輸出結構化告警，可另設 webhook URL。
+      MATCH_PRICE_MAX_BACKOFF_MS: "300000"
+      MATCH_PRICE_ALERT_AFTER_FAILURES: "3"
+      MATCH_PRICE_ALERT_WEBHOOK_URL: "${MATCH_PRICE_ALERT_WEBHOOK_URL:-}"
+    restart: unless-stopped
+
+volumes:
+  # PostgreSQL named volume，保留本地開發資料。
+  postgres_data:
